@@ -1,6 +1,7 @@
 
 import 'dart:developer';
 import 'dart:io';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../Service/PushNotificationService.dart';
 import 'ExotelSDKCallback.dart';
 import 'package:flutter/services.dart';
@@ -304,12 +305,15 @@ class ExotelSDKClient {
   Future<String> flutterCallHandler(MethodCall call) async {
     String loginStatus = "not ready";
     String callingStatus = "blank";
+    SharedPreferences prefs = await SharedPreferences.getInstance();
     switch (call.method) {
       case "loggedInStatus":
         loginStatus =  call.arguments.toString();
+        mCallBack?.setStatus(loginStatus);
         log("loginStatus = $loginStatus");
         if(loginStatus == "Ready"){
           mCallBack?.onLoggedInSucess();
+          await prefs.setBool('isLoggedIn', true);
         } else {
           mCallBack?.onLoggedInFailure(loginStatus);
         }
@@ -342,6 +346,7 @@ class ExotelSDKClient {
         String? jsonData =  call.arguments.toString();
         print('in FlutterCallHandler(), jsonData is : $jsonData');
         mCallBack?.setjsonData(jsonData);
+        await prefs.setString('jsonData', jsonData);
         break;
       default:
         break;
