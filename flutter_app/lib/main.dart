@@ -8,17 +8,17 @@ import 'callStates/connected.dart';
 import 'callStates/ringing.dart';
 import 'callStates/dtmf_page.dart';
 import 'callStates/incoming.dart';
-import 'package:firebase_core/firebase_core.dart';
-import 'firebase_options.dart';
-import 'Service/PushNotificationService.dart';
+// import 'package:firebase_core/firebase_core.dart';
+// import 'firebase_options.dart';
+// import 'Service/PushNotificationService.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp();
-  PushNotificationService.getInstance().setupLocalNotification();
+  // await Firebase.initializeApp();
+  // PushNotificationService.getInstance().setupLocalNotification();
   runApp(ChangeNotifierProvider(
     create: (context) => CallList(),
     child: MyApp(),
@@ -34,8 +34,8 @@ class MyApp extends StatelessWidget {
     ExotelSDKClient exotelSDKClient = ExotelSDKClient.getInstance();
     exotelSDKClient.setExotelSDKCallback(mApplicationUtil);
     exotelSDKClient.registerMethodHandler();
-    PushNotificationService pushNotificationService = PushNotificationService.getInstance();
-    pushNotificationService.initialize();
+    // PushNotificationService pushNotificationService = PushNotificationService.getInstance();
+    // pushNotificationService.initialize();
 
     return MaterialApp(
       navigatorKey: navigatorKey,
@@ -54,7 +54,7 @@ class MyApp extends StatelessWidget {
         // Your theme data
       ),
       home: FutureBuilder<bool>(
-        future: checkIfUserIsLoggedIn(),
+        future: exotelSDKClient.checkLoginStatus(),
         builder: (BuildContext context, AsyncSnapshot<bool> snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return CircularProgressIndicator(); // Show loading spinner while waiting for future to complete
@@ -62,7 +62,7 @@ class MyApp extends StatelessWidget {
             if (snapshot.hasError) {
               return Text('Error: ${snapshot.error}');
             } else {
-              ExotelSDKClient.requestPermissions(); // Request permissions at app launch
+              // ExotelSDKClient.requestPermissions(); // Request permissions at app launch
               return (snapshot.data ?? false) ? const HomePage() : LoginPage(
                 onLoggedin: (userId, password, accountSid, hostname) {
                   Navigator.pushReplacementNamed(

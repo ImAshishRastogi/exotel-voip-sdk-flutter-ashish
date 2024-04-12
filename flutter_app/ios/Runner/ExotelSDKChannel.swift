@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import ExotelVoice
 
 class ExotelSDKChannel {
     
@@ -22,13 +23,17 @@ class ExotelSDKChannel {
         channel = FlutterMethodChannel(name: CHANNEL_NAME, binaryMessenger: flutterEngine.binaryMessenger)
         channel.setMethodCallHandler({
             (call: FlutterMethodCall, result: @escaping FlutterResult) -> Void in
-            print("This is native code")
+            print("This is native code ")
+            print("call.method = \(call.method)")
             switch call.method {
             case "isloggedin":
+                print("isloggedin case")
                 result("false")
             default:
+                print("default case")
                 result(FlutterMethodNotImplemented)
             }
+            return
         })
     }
     

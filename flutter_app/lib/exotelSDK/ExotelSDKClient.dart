@@ -40,9 +40,9 @@ class ExotelSDKClient {
     log("login button function start");
     try {
       String? fcmToken = "";
-      await PushNotificationService.getInstance().getToken().then((value) {
-        fcmToken = value;
-      });
+      // await PushNotificationService.getInstance().getToken().then((value) {
+      //   fcmToken = value;
+      // });
       // [sdk-initialization-flow] send message from flutter to android for exotel client SDK initialization
       String res = await channel?.invokeMethod('login', {'appHostname': hostname ,'username': userId , 'account_sid': accountSid , 'password':password,'fcm_token':fcmToken});
       return res;

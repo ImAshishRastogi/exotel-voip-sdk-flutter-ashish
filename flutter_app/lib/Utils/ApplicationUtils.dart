@@ -95,10 +95,10 @@ class ApplicationUtils implements ExotelSDKCallback {
   void navigateToIncoming() {
    print("in navigateToIncoming");
    recentCallsPage(mDestination!, 'INCOMING');
-   PushNotificationService.getInstance().showLocalNotification(
-     'Incoming call!',
-     '$mDestination',
-   );
+  //  PushNotificationService.getInstance().showLocalNotification(
+  //    'Incoming call!',
+  //    '$mDestination',
+  //  );
    WidgetsBinding.instance.addPostFrameCallback((_) {
      Navigator.pushReplacementNamed(
        context!,
