@@ -1,27 +1,38 @@
 package com.exotel.voice_sample;
 
+import static android.os.Build.VERSION.SDK_INT;
+
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Intent;
+import android.content.pm.ServiceInfo;
 import android.os.Binder;
+import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.provider.Settings;
 import android.content.Context;
 
+import androidx.core.app.NotificationCompat;
+import androidx.core.app.ServiceCompat;
+
 import com.exotel.voice.Call;
-import com.exotel.voice.CallAudioRoute;
 import com.exotel.voice.CallController;
 import com.exotel.voice.CallDetails;
+import com.exotel.voice.CallDirection;
 import com.exotel.voice.CallIssue;
 import com.exotel.voice.CallListener;
+import com.exotel.voice.CallState;
 import com.exotel.voice.ErrorType;
 import com.exotel.voice.ExotelVoiceClient;
 import com.exotel.voice.ExotelVoiceClientEventListener;
 import com.exotel.voice.ExotelVoiceClientSDK;
 import com.exotel.voice.ExotelVoiceError;
 import com.exotel.voice.LogLevel;
-import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.security.InvalidParameterException;
 import java.text.SimpleDateFormat;
@@ -29,6 +40,7 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 
+import id.flutter.flutter_background_service.WatchdogReceiver;
 import io.flutter.plugin.common.MethodChannel;
 
 public class ExotelTranslatorService extends Service implements ExotelVoiceClientEventListener, CallListener {
@@ -45,9 +57,12 @@ public class ExotelTranslatorService extends Service implements ExotelVoiceClien
     private CallController callController;
     private Call mCall;
     private Call mPreviousCall;
-    private Handler uiThreadHandler = new Handler(Looper.getMainLooper());
+    private Handler mainHandler;
 
     private Context context;
+    private int NOTIFICATION_ID = 7;
+    private static final String CHANNEL_ID = "flutter_app";
+    private String notificationChannelId;
 
     public ExotelTranslatorService() {
     }
@@ -67,7 +82,36 @@ public class ExotelTranslatorService extends Service implements ExotelVoiceClien
         }
     }
 
+    @Override
+    public void onCreate() {
+        context = this.getApplicationContext();
+        VoiceAppLogger.info(TAG,"Entry: onCreate");
+        mainHandler =  new Handler(Looper.getMainLooper());
+        createNotificationChannel();
+    }
 
+    @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        VoiceAppLogger.debug(TAG, "Entry: onStart command for service, startId: " + startId);
+        boolean startForeground = intent.getBooleanExtra("foreground", false);
+        VoiceAppLogger.debug(TAG, "Start forground is: " + startForeground);
+        if (startForeground) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+//                VoiceAppLogger.debug(TAG, "Making the service as foreground12");
+//                if(getLatestCallDetails()!=null) {
+//                    if (getLatestCallDetails().getCallState() != CallState.ESTABLISHED) {
+                        VoiceAppLogger.debug(TAG,"creating notification");
+                        Notification  notification = createNotification(CallState.NONE,
+                                null, null, CallDirection.INCOMING);
+                        makeServiceForeground(notification);
+//                    }
+//                }
+            }
+        }
+        WatchdogReceiver.enqueue(this);
+
+        return START_NOT_STICKY;
+    }
 
     void registerPlatformChannel(MethodChannel methodChannel) {
         // Channel is created for communication b/w flutter and native
@@ -296,6 +340,7 @@ public class ExotelTranslatorService extends Service implements ExotelVoiceClien
     public void hangup(){
         if (null == mCall) {
             VoiceAppLogger.warn(TAG,"Error while hangup : Call object is NULL");
+            return;
         }
         VoiceAppLogger.debug(TAG, "hangup with callId: " + mCall.getCallDetails().getCallId());
         try {
@@ -359,7 +404,7 @@ public class ExotelTranslatorService extends Service implements ExotelVoiceClien
         VoiceAppLogger.debug(TAG, "Getting version details in sample app service");
         String message = ExotelVoiceClientSDK.getVersion();
         VoiceAppLogger.debug(TAG, "Getting version details in sample app service: "+ message);
-        uiThreadHandler.post(()->{
+        mainHandler.post(()->{
             HashMap<String, Object> arguments = new HashMap<>();
             arguments.put("version", message);
             channel.invokeMethod(MethodChannelInvokeMethod.ON_VERSION_DETAILS, arguments);
@@ -380,13 +425,101 @@ public class ExotelTranslatorService extends Service implements ExotelVoiceClien
         }
     }
 
+    public CallDetails getLatestCallDetails() {
+        VoiceAppLogger.debug(TAG, "getCurrentCallDetails");
+        if (null == callController) {
+            return null;
+        }
+        return callController.getLatestCallDetails();
+    }
+    public void makeServiceForeground(Notification notification) {
+        VoiceAppLogger.debug(TAG, "Making the service as foreground");
+
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            startForeground(NOTIFICATION_ID, notification);
+        } else {
+            ServiceCompat.startForeground(this,NOTIFICATION_ID,notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MANIFEST);
+        }
+
+
+    }
+    Notification createNotification(CallState state, String destination, String callId, CallDirection callDirection) {
+        context = this.getApplicationContext();
+        Intent notificationIntent;
+        String text;
+        //callState = state;
+        VoiceAppLogger.info(TAG, "Creating notification, callState: " + state +
+                " destination: " + destination + " callId: " + callId);
+
+        if (CallDirection.OUTGOING == callDirection) {
+            SharedPreferencesHelper sharedPreferencesHelper = SharedPreferencesHelper.getInstance(context);
+            destination = sharedPreferencesHelper.getString(ApplicationSharedPreferenceData.LAST_DIALLED_NO.toString());
+        }
+
+        if (CallState.OUTGOING_INITIATED == state) {
+            notificationIntent = new Intent(context, MainActivity.class);
+            text = "Connecting ..." + destination;
+        } else if (CallState.RINGING == state) {
+            notificationIntent = new Intent(context, MainActivity.class);
+            text = "Ringing ..." + destination;
+        } else if (CallState.INCOMING == state) {
+            notificationIntent = new Intent(context, MainActivity.class);
+            text = "Incoming Call ..." + destination;
+            notificationIntent.putExtra("callState", CallState.RINGING);
+        } else if (CallState.ANSWERING == state) {
+            notificationIntent = new Intent(context, MainActivity.class);
+            text = "Answering.." + destination;
+        } else if (CallState.ENDING == state) {
+            notificationIntent = new Intent(context, MainActivity.class);
+            text = "Ending.." + destination;
+        } else if (CallState.MEDIA_DISRUPTED == state) {
+            notificationIntent = new Intent(context, MainActivity.class);
+            text = "Reconnecting ..." + destination;
+        } else if (CallState.NONE == state) {
+            notificationIntent = new Intent(context, MainActivity.class);
+            text = "Received a Notification";
+        } else {
+            notificationIntent = new Intent(context, MainActivity.class);
+            text = "In Call ..." + destination;
+        }
+
+        notificationIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+
+        if (null != callId) {
+            notificationIntent.putExtra("callId", callId);
+            VoiceAppLogger.debug(TAG, "Setting call ID in the intent to: " + callId);
+        }
+        if (null != destination) {
+            notificationIntent.putExtra("destination", destination);
+            VoiceAppLogger.debug(TAG, "Setting desitnation in the intent to: " + destination);
+        }
+
+        /* https://stackoverflow.com/questions/7370324/notification-passes-old-intent-extras?noredirect=1&lq=1 */
+        int iUniqueId = (int) (System.currentTimeMillis() & 0xfffffff);
+        PendingIntent pendingIntent = null;
+        if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.S){
+            pendingIntent = PendingIntent.getActivity(context,iUniqueId,notificationIntent,PendingIntent.FLAG_MUTABLE);
+        } else {
+            pendingIntent = PendingIntent.getActivity(context, iUniqueId, notificationIntent, PendingIntent.FLAG_IMMUTABLE);
+        }
+
+        Notification notification = new NotificationCompat.Builder(context, CHANNEL_ID)
+                .setContentTitle("Exotel Voice Application")
+                .setContentText(text)
+                .setContentIntent(pendingIntent)
+                .setOnlyAlertOnce(true)
+                .setSmallIcon(R.drawable.toast_bg)
+                .build();
+
+        return notification;
+    }
     @Override
     public void onIncomingCall(Call call) {
         mCall = call;
         String callId = call.getCallDetails().getCallId();
         String destination = call.getCallDetails().getRemoteId();
         VoiceAppLogger.debug(TAG, "in onCallIncoming(), callId = " + callId + "destination = " +destination);
-        uiThreadHandler.post(()->{
+        mainHandler.post(()->{
             HashMap<String, Object> arguments = new HashMap<>();
             arguments.put("callId", callId);
             arguments.put("destination", destination);
@@ -397,7 +530,7 @@ public class ExotelTranslatorService extends Service implements ExotelVoiceClien
     @Override
     public void onCallInitiated(Call call) {
         mCall = call;
-        uiThreadHandler.post(()->{
+        mainHandler.post(()->{
             channel.invokeMethod(MethodChannelInvokeMethod.ON_CALL_INITIATED, null);
         });
     }
@@ -406,7 +539,7 @@ public class ExotelTranslatorService extends Service implements ExotelVoiceClien
     public void onCallRinging(Call call) {
         mCall = call;
         VoiceAppLogger.debug(TAG, "in onCallRinging(), ExotelTranslatorService");
-        uiThreadHandler.post(()->{
+        mainHandler.post(()->{
             channel.invokeMethod(MethodChannelInvokeMethod.ON_CALL_RINGING, null);
         });
     }
@@ -414,7 +547,7 @@ public class ExotelTranslatorService extends Service implements ExotelVoiceClien
     @Override
     public void onCallEstablished(Call call) {
         mCall = call;
-        uiThreadHandler.post(()-> {
+        mainHandler.post(()-> {
             channel.invokeMethod(MethodChannelInvokeMethod.ON_CALL_ESTABLISHED, null);
         });
     }
@@ -423,7 +556,7 @@ public class ExotelTranslatorService extends Service implements ExotelVoiceClien
     public void onCallEnded(Call call) {
         mCall = null;
         mPreviousCall = call;
-        uiThreadHandler.post(()-> {
+        mainHandler.post(()-> {
             HashMap<String, String> arguments = new HashMap<>();
             arguments.put("direction", call.getCallDetails().getCallDirection().toString());
             arguments.put("end-reason", call.getCallDetails().getCallEndReason().toString());
@@ -435,7 +568,7 @@ public class ExotelTranslatorService extends Service implements ExotelVoiceClien
 
     @Override
     public void onMissedCall(String s, Date date) {
-        uiThreadHandler.post(()->{
+        mainHandler.post(()->{
             channel.invokeMethod(MethodChannelInvokeMethod.ON_MISSED_CALL, null);
         });
     }
@@ -443,7 +576,7 @@ public class ExotelTranslatorService extends Service implements ExotelVoiceClien
     @Override
     public void onMediaDisrupted(Call call) {
         mCall = call;
-        uiThreadHandler.post(()->{
+        mainHandler.post(()->{
             channel.invokeMethod(MethodChannelInvokeMethod.ON_MEDIA_DISTRUPTED, null);
         });
     }
@@ -451,7 +584,7 @@ public class ExotelTranslatorService extends Service implements ExotelVoiceClien
     @Override
     public void onRenewingMedia(Call call) {
         mCall = call;
-        uiThreadHandler.post(()->{
+        mainHandler.post(()->{
             channel.invokeMethod(MethodChannelInvokeMethod.ON_RENEWING_MEDIA, null);
         });
     }
@@ -459,14 +592,14 @@ public class ExotelTranslatorService extends Service implements ExotelVoiceClien
     @Override
     public void onInitializationSuccess() {
         VoiceAppLogger.debug(TAG, "Enter onInitializationSuccess()");
-        uiThreadHandler.post(()->{
+        mainHandler.post(()->{
             channel.invokeMethod(MethodChannelInvokeMethod.ON_INITIALIZATION_SUCCESS,null);
         });
     }
 
     @Override
     public void onInitializationFailure(ExotelVoiceError exotelVoiceError) {
-        uiThreadHandler.post(()->{
+        mainHandler.post(()->{
             channel.invokeMethod(MethodChannelInvokeMethod.ON_INITIALIZATION_FAILURE,createResponse(exotelVoiceError.getErrorMessage()));
         });
     }
@@ -486,21 +619,21 @@ public class ExotelTranslatorService extends Service implements ExotelVoiceClien
 
     @Override
     public void onUploadLogSuccess() {
-        uiThreadHandler.post(()->{
+        mainHandler.post(()->{
             channel.invokeMethod(MethodChannelInvokeMethod.ON_UPLOAD_LOG_SUCCESS,null);
         });
     }
 
     @Override
     public void onUploadLogFailure(ExotelVoiceError exotelVoiceError) {
-        uiThreadHandler.post(()->{
+        mainHandler.post(()->{
             channel.invokeMethod(MethodChannelInvokeMethod.ON_UPLOAD_LOG_FAILURE,createResponse(exotelVoiceError.getErrorMessage()));
         });
     }
 
     @Override
     public void onAuthenticationFailure(ExotelVoiceError exotelVoiceError) {
-        uiThreadHandler.post(()->{
+        mainHandler.post(()->{
             channel.invokeMethod(MethodChannelInvokeMethod.ON_AUTHENTICATION_FAILURE,createResponse("Authentication failure"));
         });
     }
@@ -509,4 +642,15 @@ public class ExotelTranslatorService extends Service implements ExotelVoiceClien
         result.put("data",data);
         return result;
     }
+    void createNotificationChannel() {
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel serviceChannel = new NotificationChannel(CHANNEL_ID,
+                    "Exotel Voip Sample", NotificationManager.IMPORTANCE_DEFAULT);
+            NotificationManager manager = context.getSystemService(NotificationManager.class);
+            manager.createNotificationChannel(serviceChannel);
+        }
+    }
+
+
 }
